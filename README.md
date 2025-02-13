@@ -11,6 +11,9 @@ Batch Conversion Enhancements – Renaming and folder structure adjustments stre
 Improved File & Folder Naming – Ensures proper naming conventions for better organization.
 Destination Selection for Batch Conversion – Choose where to save converted ISOs with ease.
 Bug Fixes & Stability Improvements – Addressed multiple minor issues to improve overall performance.
+
+
+
 v1.0.5
 What's new?
 
@@ -19,6 +22,9 @@ Adjusted copyright text to reflect the GitHub repository and new licensing.
 Added assembly description.
 Use Path.Combine for better Linux support (thanks to Megan Leet).
 This version tagged (somewhat late) and binary version uploaded as requested.
+
+
+
 v1.0.4
 What's new?
 
