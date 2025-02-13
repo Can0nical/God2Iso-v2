@@ -1,18 +1,23 @@
 God2Iso
-<a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/80x15.png" /></a>
 
-This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.
+Please Note Any Work Done Before the v2 is not my Own 
+and is purely credits to the original creator - although the tedious process that was needed to get the job done  still got the job done 
 
 v2.0.0
 What's new?
 
-Automatic Game Folder Scanning – God2Iso now automatically detects all GOD content in the selected directory.
-Batch Conversion Enhancements – Renaming and folder structure adjustments streamline batch conversion back to ISO.
-Improved File & Folder Naming – Ensures proper naming conventions for better organization.
-Destination Selection for Batch Conversion – Choose where to save converted ISOs with ease.
-Bug Fixes & Stability Improvements – Addressed multiple minor issues to improve overall performance.
+Automatic Game Folder Scanning – 
+God2Iso now automatically detects all GOD content in the selected directory.
+Batch Conversion Enhancements –
+God2Iso now automatically Renames the Neccesary Files and folder's also provides structure adjustments to streamline batch conversion back to ISO.
+Improved File & Folder Naming –
+Ensures proper naming conventions for better organization.
+Destination Selection for Batch Conversion – 
+Choose where to save converted ISOs with ease.
+Bug Fixes & Stability Improvements –
+Addressed multiple minor/major issues to improve overall performance.
 
-
+------------------------------------------------------------------------------------------------------------------------------------------------
 
 v1.0.5
 What's new?
