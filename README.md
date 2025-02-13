@@ -1,4 +1,4 @@
-God2Iso
+God2Iso - v2
 
 Please Note Any Work Done Before the v2 is not my Own 
 and is purely credits to the original creator - although the tedious process that was needed to get the job done  still got the job done 
