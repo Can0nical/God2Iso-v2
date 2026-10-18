@@ -39,6 +39,16 @@ namespace God2Iso
 
             ApplySettingsToUi();
             ThemePalette.Apply(this);
+            // Dark title bar needs to fire against a real handle AND after the
+            // window has been shown — DWM caches the non-client area at first paint.
+            HandleCreated += (_, _) => ThemePalette.ApplyDarkTitleBar(this);
+            Shown += (_, _) =>
+            {
+                ThemePalette.ApplyDarkTitleBar(this);
+                // Force a non-client redraw so the title bar flips immediately.
+                var r = new Rectangle(0, 0, 1, 1);
+                Invalidate(r, true);
+            };
 
             if (_settings.AutoPopulateOnStart &&
                 !string.IsNullOrEmpty(_settings.DefaultSourceFolder) &&

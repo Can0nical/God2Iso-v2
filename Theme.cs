@@ -64,13 +64,33 @@ namespace God2Iso
             else if (c is Button b)
             {
                 b.FlatStyle = FlatStyle.Flat;
-                b.FlatAppearance.BorderColor = Border;
                 b.FlatAppearance.BorderSize = 1;
-                b.FlatAppearance.MouseOverBackColor = Surface;
-                b.FlatAppearance.MouseDownBackColor = Accent;
-                b.BackColor = Surface;
-                b.ForeColor = Text;
                 b.Cursor = Cursors.Hand;
+                if (b.Tag as string == "primary")
+                {
+                    b.BackColor = Accent;
+                    b.ForeColor = Color.White;
+                    b.FlatAppearance.BorderColor = Accent;
+                    b.FlatAppearance.MouseOverBackColor = Color.FromArgb(
+                        255, Math.Min(255, Accent.R + 20),
+                        Math.Min(255, Accent.G + 20),
+                        Math.Min(255, Accent.B + 20));
+                    b.FlatAppearance.MouseDownBackColor = Color.FromArgb(
+                        255, Math.Max(0, Accent.R - 20),
+                        Math.Max(0, Accent.G - 20),
+                        Math.Max(0, Accent.B - 20));
+                }
+                else
+                {
+                    b.BackColor = Surface;
+                    b.ForeColor = Text;
+                    b.FlatAppearance.BorderColor = Border;
+                    b.FlatAppearance.MouseOverBackColor = Color.FromArgb(
+                        255, Math.Min(255, Surface.R + 15),
+                        Math.Min(255, Surface.G + 15),
+                        Math.Min(255, Surface.B + 15));
+                    b.FlatAppearance.MouseDownBackColor = Accent;
+                }
             }
             else if (c is TextBox tb)
             {
@@ -106,10 +126,31 @@ namespace God2Iso
                 gb.BackColor = Background;
                 gb.ForeColor = Accent;
             }
+            else if (c is FlowLayoutPanel flow)
+            {
+                flow.BackColor = Color.Transparent;
+                flow.ForeColor = Text;
+            }
+            else if (c is TableLayoutPanel tlp)
+            {
+                tlp.BackColor = Background;
+                tlp.ForeColor = Text;
+            }
             else if (c is Panel p)
             {
-                p.BackColor = p.Tag as string == "surface" ? Surface : Background;
+                var tag = p.Tag as string;
+                p.BackColor = tag switch
+                {
+                    "header" => Surface,
+                    "surface" => Surface,
+                    "card" => Surface,
+                    _ => Background,
+                };
                 p.ForeColor = Text;
+            }
+            else if (c is ThemedProgressBar)
+            {
+                // ThemedProgressBar owner-draws using palette directly; no setup needed.
             }
 
             foreach (Control child in c.Controls) ApplyRecursive(child);
@@ -119,16 +160,25 @@ namespace God2Iso
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
         private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
 
-        private static void ApplyDarkTitleBar(Control root)
+        public static void ApplyDarkTitleBar(Form form)
         {
-            if (root is not Form form) return;
             try
             {
                 int on = 1;
-                DwmSetWindowAttribute(form.Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref on, sizeof(int));
+                // Try the current attribute first (20), fall back to the pre-build 18985 one (19).
+                if (DwmSetWindowAttribute(form.Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref on, sizeof(int)) != 0)
+                {
+                    DwmSetWindowAttribute(form.Handle, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref on, sizeof(int));
+                }
             }
             catch { /* older Windows — just skip */ }
+        }
+
+        private static void ApplyDarkTitleBar(Control root)
+        {
+            if (root is Form f) ApplyDarkTitleBar(f);
         }
     }
 }

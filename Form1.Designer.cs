@@ -8,31 +8,34 @@ namespace God2Iso
     {
         private System.ComponentModel.IContainer? components = null;
 
+        private TableLayoutPanel _root = null!;
         private Panel _headerPanel = null!;
         private Label _titleLabel = null!;
         private Label _subtitleLabel = null!;
         private Button _btnSettings = null!;
 
-        private Panel _bodyPanel = null!;
-
+        private Panel _packagesCard = null!;
         private Label _lblPackages = null!;
         private ListBox _listPackages = null!;
+        private FlowLayoutPanel _packageButtons = null!;
         private Button _btnAdd = null!;
         private Button _btnScanFolder = null!;
         private Button _btnRemove = null!;
         private Button _btnClear = null!;
 
+        private Panel _outputCard = null!;
         private Label _lblOutput = null!;
         private TextBox _textOutput = null!;
         private Button _btnBrowseOutput = null!;
-
         private CheckBox _cbFix = null!;
 
+        private Panel _progressCard = null!;
         private Label _lblIso = null!;
-        private ProgressBar _progressIso = null!;
+        private ThemedProgressBar _progressIso = null!;
         private Label _lblTotal = null!;
-        private ProgressBar _progressTotal = null!;
+        private ThemedProgressBar _progressTotal = null!;
 
+        private Panel _footerPanel = null!;
         private Button _btnGo = null!;
         private Label _statusLabel = null!;
 
@@ -47,202 +50,210 @@ namespace God2Iso
             components = new System.ComponentModel.Container();
             SuspendLayout();
 
-            // ── Form ──
             Font = new Font("Segoe UI", 9.5f, FontStyle.Regular, GraphicsUnit.Point);
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(760, 600);
-            MinimumSize = new Size(640, 520);
+            ClientSize = new Size(820, 680);
+            MinimumSize = new Size(720, 620);
             StartPosition = FormStartPosition.CenterScreen;
             Text = "God2Iso";
 
-            // ── Header strip ──
-            _headerPanel = new Panel
+            // ─── Root: 5-row stack (header / packages / output / progress / footer) ───
+            _root = new TableLayoutPanel
             {
-                Dock = DockStyle.Top,
-                Height = 72,
-                Tag = "surface",
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 5,
+                Padding = new Padding(0),
             };
+            _root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 76f));   // header
+            _root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));   // packages (grows)
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 110f));  // output
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 110f));  // progress
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 72f));   // footer
 
+            // ─── Header ───
+            _headerPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(24, 14, 20, 14) };
+            _headerPanel.Tag = "header";
             _titleLabel = new Label
             {
                 Text = "GoD → ISO",
-                Location = new Point(20, 14),
                 AutoSize = true,
                 Font = new Font("Segoe UI Semibold", 15f, FontStyle.Bold),
+                Location = new Point(24, 12),
             };
             _subtitleLabel = new Label
             {
                 Text = "Convert Xbox 360 Games on Demand packages into bootable ISO images.",
-                Location = new Point(22, 44),
                 AutoSize = true,
-                Tag = "muted",
                 Font = new Font("Segoe UI", 9f),
+                Tag = "muted",
+                Location = new Point(26, 42),
             };
             _btnSettings = new Button
             {
                 Text = "⚙  Settings",
-                Size = new Size(110, 32),
+                Size = new Size(118, 36),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                FlatStyle = FlatStyle.Flat,
             };
-            _btnSettings.Location = new Point(ClientSize.Width - _btnSettings.Width - 20, 20);
+            _btnSettings.Location = new Point(_headerPanel.Width - 142, 20);
+            _headerPanel.Resize += (_, _) =>
+            {
+                _btnSettings.Location = new Point(_headerPanel.ClientSize.Width - _btnSettings.Width - 20, 20);
+            };
             _btnSettings.Click += OnSettingsClick;
-
             _headerPanel.Controls.Add(_titleLabel);
             _headerPanel.Controls.Add(_subtitleLabel);
             _headerPanel.Controls.Add(_btnSettings);
 
-            // ── Body ──
-            _bodyPanel = new Panel
-            {
-                Dock = DockStyle.Fill,
-                Padding = new Padding(20, 16, 20, 16),
-            };
-
-            // Packages label
+            // ─── Packages card (list + 4-button row) ───
+            _packagesCard = new Panel { Dock = DockStyle.Fill, Padding = new Padding(20, 14, 20, 14), Tag = "card" };
             _lblPackages = new Label
             {
                 Text = "Packages",
-                Location = new Point(20, 86),
-                AutoSize = true,
+                Dock = DockStyle.Top,
+                Height = 28,
                 Font = new Font("Segoe UI Semibold", 10f, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleLeft,
             };
+            _packageButtons = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 46,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Padding = new Padding(0, 10, 0, 0),
+            };
+            _btnAdd = MakeButton("＋  Add file");
+            _btnAdd.Click += OnAddClick;
+            _btnScanFolder = MakeButton("🔎  Scan folder…");
+            _btnScanFolder.Click += OnScanFolderClick;
+            _btnRemove = MakeButton("－  Remove");
+            _btnRemove.Enabled = false;
+            _btnRemove.Click += OnRemoveClick;
+            _btnClear = MakeButton("Clear all");
+            _btnClear.Click += OnClearClick;
+            _packageButtons.Controls.Add(_btnAdd);
+            _packageButtons.Controls.Add(_btnScanFolder);
+            _packageButtons.Controls.Add(_btnRemove);
+            _packageButtons.Controls.Add(_btnClear);
 
-            // List
             _listPackages = new ListBox
             {
-                Location = new Point(20, 112),
-                Size = new Size(530, 180),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Dock = DockStyle.Fill,
                 HorizontalScrollbar = true,
                 IntegralHeight = false,
                 SelectionMode = SelectionMode.One,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Segoe UI", 9.5f),
             };
             _listPackages.SelectedIndexChanged += OnListSelectionChanged;
+            _packagesCard.Controls.Add(_listPackages);
+            _packagesCard.Controls.Add(_packageButtons);
+            _packagesCard.Controls.Add(_lblPackages);
 
-            // Action buttons column
-            _btnAdd = MakeActionButton("＋  Add file", new Point(560, 112));
-            _btnAdd.Click += OnAddClick;
-            _btnScanFolder = MakeActionButton("🔎  Scan folder…", new Point(560, 150));
-            _btnScanFolder.Click += OnScanFolderClick;
-            _btnRemove = MakeActionButton("－  Remove", new Point(560, 188));
-            _btnRemove.Enabled = false;
-            _btnRemove.Click += OnRemoveClick;
-            _btnClear = MakeActionButton("Clear all", new Point(560, 226));
-            _btnClear.Click += OnClearClick;
-
-            // Output field
+            // ─── Output card ───
+            _outputCard = new Panel { Dock = DockStyle.Fill, Padding = new Padding(20, 10, 20, 10), Tag = "card" };
             _lblOutput = new Label
             {
                 Text = "Output folder",
-                Location = new Point(20, 310),
-                AutoSize = true,
+                Dock = DockStyle.Top,
+                Height = 24,
                 Font = new Font("Segoe UI Semibold", 10f, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleLeft,
             };
+            var outRow = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 36,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = new Padding(0),
+            };
+            outRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            outRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110f));
             _textOutput = new TextBox
             {
-                Location = new Point(20, 336),
-                Size = new Size(530, 28),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 10f),
+                Margin = new Padding(0, 4, 10, 0),
             };
-            _btnBrowseOutput = MakeActionButton("Browse…", new Point(560, 334));
+            _btnBrowseOutput = MakeButton("Browse…");
+            _btnBrowseOutput.Dock = DockStyle.Fill;
+            _btnBrowseOutput.Margin = new Padding(0, 2, 0, 2);
             _btnBrowseOutput.Click += OnBrowseOutputClick;
+            outRow.Controls.Add(_textOutput, 0, 0);
+            outRow.Controls.Add(_btnBrowseOutput, 1, 0);
 
-            // Fix checkbox
             _cbFix = new CheckBox
             {
                 Text = "Fix / rebuild Create-ISO Good headers",
-                Location = new Point(20, 376),
                 AutoSize = true,
+                Dock = DockStyle.Top,
+                Margin = new Padding(0, 8, 0, 0),
             };
             _cbFix.CheckedChanged += OnFixCheckedChanged;
 
-            // Progress labels + bars
-            _lblIso = new Label
-            {
-                Text = "Current ISO",
-                Location = new Point(20, 410),
-                AutoSize = true,
-                Tag = "muted",
-                Font = new Font("Segoe UI", 9f),
-            };
-            _progressIso = new ProgressBar
-            {
-                Location = new Point(20, 430),
-                Size = new Size(720, 14),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                Style = ProgressBarStyle.Continuous,
-            };
-            _lblTotal = new Label
-            {
-                Text = "Total",
-                Location = new Point(20, 456),
-                AutoSize = true,
-                Tag = "muted",
-                Font = new Font("Segoe UI", 9f),
-            };
-            _progressTotal = new ProgressBar
-            {
-                Location = new Point(20, 476),
-                Size = new Size(720, 14),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                Style = ProgressBarStyle.Continuous,
-                Step = 1,
-            };
+            _outputCard.Controls.Add(_cbFix);
+            _outputCard.Controls.Add(outRow);
+            _outputCard.Controls.Add(_lblOutput);
 
-            // Go button
+            // ─── Progress card ───
+            _progressCard = new Panel { Dock = DockStyle.Fill, Padding = new Padding(20, 10, 20, 14), Tag = "card" };
+            _lblIso = new Label { Text = "Current ISO", Dock = DockStyle.Top, Height = 20, Tag = "muted", Font = new Font("Segoe UI", 9f) };
+            _progressIso = new ThemedProgressBar { Dock = DockStyle.Top, Height = 10, Margin = new Padding(0, 2, 0, 10) };
+            _lblTotal = new Label { Text = "Total", Dock = DockStyle.Top, Height = 20, Margin = new Padding(0, 10, 0, 0), Tag = "muted", Font = new Font("Segoe UI", 9f) };
+            _progressTotal = new ThemedProgressBar { Dock = DockStyle.Top, Height = 10, Margin = new Padding(0, 2, 0, 0), Step = 1 };
+            _progressCard.Controls.Add(_progressTotal);
+            _progressCard.Controls.Add(_lblTotal);
+            _progressCard.Controls.Add(_progressIso);
+            _progressCard.Controls.Add(_lblIso);
+
+            // ─── Footer ───
+            _footerPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(20, 14, 20, 14), Tag = "surface" };
             _btnGo = new Button
             {
                 Text = "▶  Convert",
-                Location = new Point(20, 510),
-                Size = new Size(170, 44),
+                Size = new Size(190, 44),
+                Dock = DockStyle.Left,
                 Font = new Font("Segoe UI Semibold", 11f, FontStyle.Bold),
-                Anchor = AnchorStyles.Bottom | AnchorStyles.Left,
+                FlatStyle = FlatStyle.Flat,
+                Tag = "primary",
             };
             _btnGo.Click += OnGoClick;
-
             _statusLabel = new Label
             {
                 Text = "Idle",
-                Location = new Point(210, 524),
-                AutoSize = true,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleRight,
                 Tag = "muted",
-                Anchor = AnchorStyles.Bottom | AnchorStyles.Left,
+                Padding = new Padding(0, 0, 12, 0),
             };
+            _footerPanel.Controls.Add(_statusLabel);
+            _footerPanel.Controls.Add(_btnGo);
 
-            // Compose
-            Controls.Add(_bodyPanel);
-            Controls.Add(_headerPanel);
-
-            _bodyPanel.Controls.Add(_lblPackages);
-            _bodyPanel.Controls.Add(_listPackages);
-            _bodyPanel.Controls.Add(_btnAdd);
-            _bodyPanel.Controls.Add(_btnScanFolder);
-            _bodyPanel.Controls.Add(_btnRemove);
-            _bodyPanel.Controls.Add(_btnClear);
-            _bodyPanel.Controls.Add(_lblOutput);
-            _bodyPanel.Controls.Add(_textOutput);
-            _bodyPanel.Controls.Add(_btnBrowseOutput);
-            _bodyPanel.Controls.Add(_cbFix);
-            _bodyPanel.Controls.Add(_lblIso);
-            _bodyPanel.Controls.Add(_progressIso);
-            _bodyPanel.Controls.Add(_lblTotal);
-            _bodyPanel.Controls.Add(_progressTotal);
-            _bodyPanel.Controls.Add(_btnGo);
-            _bodyPanel.Controls.Add(_statusLabel);
+            // Assemble
+            _root.Controls.Add(_headerPanel, 0, 0);
+            _root.Controls.Add(_packagesCard, 0, 1);
+            _root.Controls.Add(_outputCard, 0, 2);
+            _root.Controls.Add(_progressCard, 0, 3);
+            _root.Controls.Add(_footerPanel, 0, 4);
+            Controls.Add(_root);
 
             ResumeLayout(false);
         }
 
-        private Button MakeActionButton(string text, Point location)
+        private static Button MakeButton(string text)
         {
             return new Button
             {
                 Text = text,
-                Location = location,
-                Size = new Size(160, 32),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                FlatStyle = FlatStyle.Flat,
+                Size = new Size(150, 34),
+                Margin = new Padding(0, 0, 8, 0),
                 TextAlign = ContentAlignment.MiddleCenter,
+                Cursor = Cursors.Hand,
             };
         }
     }
