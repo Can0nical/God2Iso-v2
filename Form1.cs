@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -129,8 +129,7 @@ namespace God2Iso
             }
             else
             {
-                MessageBox.Show(this, "Could not find associated data file:\n" + dataPath,
-                    "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageDialog.Show(this, "File not found", "Could not find the associated data file:\n" + dataPath, MessageDialog.Kind.Error);
             }
         }
 
@@ -164,9 +163,9 @@ namespace God2Iso
 
             if (!_settings.SkipBatchConfirmPrompt)
             {
-                MessageBox.Show(this,
-                    $"Scan complete. {added} package(s) added to the list.",
-                    "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageDialog.Show(this, "Scan complete",
+                    $"{added} package(s) added to the list.",
+                    MessageDialog.Kind.Success);
             }
             else
             {
@@ -198,26 +197,22 @@ namespace God2Iso
         {
             if (_listPackages.Items.Count < 1)
             {
-                MessageBox.Show(this, "No GoD packages specified.", "God2Iso",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageDialog.Show(this, "Nothing to convert", "Add one or more GoD packages first.", MessageDialog.Kind.Warning);
                 return;
             }
             if (string.IsNullOrWhiteSpace(_textOutput.Text))
             {
-                MessageBox.Show(this, "Pick an output folder first.", "God2Iso",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageDialog.Show(this, "Output folder required", "Pick an output folder first.", MessageDialog.Kind.Warning);
                 return;
             }
             if (!Directory.Exists(_textOutput.Text))
             {
-                MessageBox.Show(this, "Output folder does not exist.", "God2Iso",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageDialog.Show(this, "Output folder missing", "The output folder you picked no longer exists.", MessageDialog.Kind.Error);
                 return;
             }
             if (_xsfHeader is null)
             {
-                MessageBox.Show(this, "Embedded XSF header missing — build issue.",
-                    "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageDialog.Show(this, "Build issue", "Embedded XSF header missing — please report this.", MessageDialog.Kind.Error);
                 return;
             }
 
@@ -245,9 +240,9 @@ namespace God2Iso
                     var drive = new DriveInfo(driveRoot);
                     if (drive.IsReady && drive.AvailableFreeSpace < totalSize)
                     {
-                        MessageBox.Show(this,
-                            $"Not enough free space in the output folder.\nNeed approximately {FormatSize((ulong)totalSize)}.",
-                            "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        MessageDialog.Show(this, "Not enough free space",
+                            $"The output folder's drive doesn't have enough free space.\nNeed approximately {FormatSize((ulong)totalSize)}.",
+                            MessageDialog.Kind.Error);
                         return;
                     }
                 }
@@ -380,8 +375,8 @@ namespace God2Iso
                 }
                 catch (Exception ex)
                 {
-                    Invoke(() => MessageBox.Show(this, ex.Message, "God2Iso",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error));
+                    Invoke(() => MessageDialog.Show(this, "Conversion error",
+                        ex.Message, MessageDialog.Kind.Error));
                 }
                 finally
                 {
@@ -412,13 +407,12 @@ namespace God2Iso
 
             if (_settings.ShowCompletionDialog)
             {
-                MessageBox.Show(this,
+                MessageDialog.Show(this,
+                    done == total ? "Conversion complete" : "Finished with errors",
                     done == total
                         ? $"All done — {done} ISO{(done == 1 ? "" : "s")} written to:\n{_textOutput.Text}"
                         : $"Finished with {done}/{total} ISO(s) written. Check the error popups for details.",
-                    "God2Iso — Conversion Complete",
-                    MessageBoxButtons.OK,
-                    done == total ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                    done == total ? MessageDialog.Kind.Success : MessageDialog.Kind.Warning);
             }
             else
             {
@@ -622,3 +616,4 @@ namespace God2Iso
         }
     }
 }
+

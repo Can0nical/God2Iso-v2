@@ -1,18 +1,26 @@
 using System;
 using System.Drawing;
-using System.IO;
 using System.Windows.Forms;
 
 namespace God2Iso
 {
     /// <summary>
-    /// Modal settings editor — covers every customization SeriesXM asked for
-    /// (output default, source default, auto-populate toggle, confirmation
-    /// toggle, completion dialog toggle, color palette).
+    /// Modern settings editor — fixed dark chrome (doesn't track the palette
+    /// being edited so you can turn Background pink without pinking the dialog).
     /// </summary>
     public sealed class SettingsDialog : Form
     {
         public AppSettings ResultSettings { get; private set; }
+
+        // Fixed chrome palette — intentionally independent of ThemePalette so
+        // the dialog looks the same while the user is mid-edit.
+        private static readonly Color BgDark = Color.FromArgb(18, 20, 26);
+        private static readonly Color Surface = Color.FromArgb(28, 32, 40);
+        private static readonly Color SurfaceHi = Color.FromArgb(36, 40, 51);
+        private static readonly Color BorderDark = Color.FromArgb(45, 51, 66);
+        private static readonly Color TextLight = Color.FromArgb(240, 242, 246);
+        private static readonly Color MutedText = Color.FromArgb(140, 148, 165);
+        private static readonly Color AccentFixed = Color.FromArgb(79, 140, 255);
 
         private readonly TextBox _txtOutput = new();
         private readonly TextBox _txtSource = new();
@@ -26,6 +34,13 @@ namespace God2Iso
         private readonly Panel _swatchText = new();
         private readonly Panel _swatchMuted = new();
         private readonly Panel _swatchBorder = new();
+
+        private readonly TextBox _hexBg = new();
+        private readonly TextBox _hexSurface = new();
+        private readonly TextBox _hexAccent = new();
+        private readonly TextBox _hexText = new();
+        private readonly TextBox _hexMuted = new();
+        private readonly TextBox _hexBorder = new();
 
         public SettingsDialog(AppSettings current)
         {
@@ -45,81 +60,85 @@ namespace God2Iso
                 BorderColorHex = current.BorderColorHex,
             };
             BuildUi();
-            ThemePalette.Apply(this);
+            HandleCreated += (_, _) => ThemePalette.ApplyDarkTitleBar(this);
+            Shown += (_, _) => ThemePalette.ApplyDarkTitleBar(this);
         }
 
         private void BuildUi()
         {
             Text = "Settings";
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(540, 560);
+            ClientSize = new Size(620, 620);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MinimizeBox = false;
             MaximizeBox = false;
             Font = new Font("Segoe UI", 9.5f);
+            BackColor = BgDark;
+            ForeColor = TextLight;
+            KeyPreview = true;
+            KeyDown += (_, e) =>
+            {
+                if (e.KeyCode == Keys.Escape) { DialogResult = DialogResult.Cancel; Close(); }
+            };
 
-            int y = 20;
+            int y = 24;
 
-            Controls.Add(SectionHeader("Defaults", 20, y)); y += 32;
+            Controls.Add(SectionHeader("Defaults", 28, y)); y += 36;
 
-            Controls.Add(FieldLabel("Default output folder", 20, y)); y += 22;
-            _txtOutput.Location = new Point(20, y);
-            _txtOutput.Size = new Size(400, 28);
+            Controls.Add(FieldLabel("Default output folder", 28, y)); y += 22;
+            StyleInput(_txtOutput, 28, y, 460);
             _txtOutput.Text = ResultSettings.DefaultOutputFolder;
             Controls.Add(_txtOutput);
-            Controls.Add(BrowseButton(430, y, picked => _txtOutput.Text = picked));
-            y += 42;
+            Controls.Add(BrowseButton(498, y - 1, picked => _txtOutput.Text = picked));
+            y += 44;
 
-            Controls.Add(FieldLabel("Default source folder (auto-populate on launch)", 20, y)); y += 22;
-            _txtSource.Location = new Point(20, y);
-            _txtSource.Size = new Size(400, 28);
+            Controls.Add(FieldLabel("Default source folder (auto-populate on launch)", 28, y)); y += 22;
+            StyleInput(_txtSource, 28, y, 460);
             _txtSource.Text = ResultSettings.DefaultSourceFolder;
             Controls.Add(_txtSource);
-            Controls.Add(BrowseButton(430, y, picked => _txtSource.Text = picked));
-            y += 40;
+            Controls.Add(BrowseButton(498, y - 1, picked => _txtSource.Text = picked));
+            y += 42;
 
-            _cbAutoPopulate.Text = "Auto-populate list from source folder on launch";
-            _cbAutoPopulate.AutoSize = true;
-            _cbAutoPopulate.Location = new Point(20, y);
+            StyleCheck(_cbAutoPopulate, "Auto-populate list from source folder on launch", 28, y);
             _cbAutoPopulate.Checked = ResultSettings.AutoPopulateOnStart;
-            Controls.Add(_cbAutoPopulate); y += 24;
+            Controls.Add(_cbAutoPopulate); y += 26;
 
-            _cbSkipConfirm.Text = "Skip \"Scan complete\" confirmation popup (show toast instead)";
-            _cbSkipConfirm.AutoSize = true;
-            _cbSkipConfirm.Location = new Point(20, y);
+            StyleCheck(_cbSkipConfirm, "Skip \"Scan complete\" popup (show toast instead)", 28, y);
             _cbSkipConfirm.Checked = ResultSettings.SkipBatchConfirmPrompt;
-            Controls.Add(_cbSkipConfirm); y += 24;
+            Controls.Add(_cbSkipConfirm); y += 26;
 
-            _cbShowCompletion.Text = "Show popup when conversion finishes";
-            _cbShowCompletion.AutoSize = true;
-            _cbShowCompletion.Location = new Point(20, y);
+            StyleCheck(_cbShowCompletion, "Show popup when conversion finishes", 28, y);
             _cbShowCompletion.Checked = ResultSettings.ShowCompletionDialog;
-            Controls.Add(_cbShowCompletion); y += 32;
+            Controls.Add(_cbShowCompletion); y += 36;
 
-            Controls.Add(SectionHeader("Theme", 20, y)); y += 32;
+            Controls.Add(SectionHeader("Theme", 28, y)); y += 36;
 
-            AddSwatch("Background", _swatchBg, ResultSettings.BackgroundColorHex, 20, y,
+            // 2×3 grid of color swatches — bigger, cleaner
+            int row1 = y;
+            int row2 = y + 76;
+            AddSwatchRow("Background", _swatchBg, _hexBg,
+                ResultSettings.BackgroundColorHex, 28, row1,
                 hex => ResultSettings.BackgroundColorHex = hex);
-            AddSwatch("Surface", _swatchSurface, ResultSettings.SurfaceColorHex, 190, y,
+            AddSwatchRow("Surface", _swatchSurface, _hexSurface,
+                ResultSettings.SurfaceColorHex, 220, row1,
                 hex => ResultSettings.SurfaceColorHex = hex);
-            AddSwatch("Accent", _swatchAccent, ResultSettings.AccentColorHex, 360, y,
+            AddSwatchRow("Accent", _swatchAccent, _hexAccent,
+                ResultSettings.AccentColorHex, 412, row1,
                 hex => ResultSettings.AccentColorHex = hex);
-            y += 56;
 
-            AddSwatch("Text", _swatchText, ResultSettings.TextColorHex, 20, y,
+            AddSwatchRow("Text", _swatchText, _hexText,
+                ResultSettings.TextColorHex, 28, row2,
                 hex => ResultSettings.TextColorHex = hex);
-            AddSwatch("Muted text", _swatchMuted, ResultSettings.MutedTextColorHex, 190, y,
+            AddSwatchRow("Muted text", _swatchMuted, _hexMuted,
+                ResultSettings.MutedTextColorHex, 220, row2,
                 hex => ResultSettings.MutedTextColorHex = hex);
-            AddSwatch("Border", _swatchBorder, ResultSettings.BorderColorHex, 360, y,
+            AddSwatchRow("Border", _swatchBorder, _hexBorder,
+                ResultSettings.BorderColorHex, 412, row2,
                 hex => ResultSettings.BorderColorHex = hex);
-            y += 72;
 
-            var btnReset = new Button
-            {
-                Text = "Reset theme to default",
-                Location = new Point(20, y),
-                Size = new Size(200, 32),
-            };
+            y = row2 + 76;
+
+            var btnReset = MakeFlatButton("↺  Reset theme to default", 28, y, 220, 36, primary: false);
             btnReset.Click += (_, _) =>
             {
                 var def = new AppSettings();
@@ -129,19 +148,19 @@ namespace God2Iso
                 ResultSettings.TextColorHex = def.TextColorHex;
                 ResultSettings.MutedTextColorHex = def.MutedTextColorHex;
                 ResultSettings.BorderColorHex = def.BorderColorHex;
-                _swatchBg.BackColor = ThemePalette.ParseHex(def.BackgroundColorHex, Color.Black);
-                _swatchSurface.BackColor = ThemePalette.ParseHex(def.SurfaceColorHex, Color.Black);
-                _swatchAccent.BackColor = ThemePalette.ParseHex(def.AccentColorHex, Color.Blue);
-                _swatchText.BackColor = ThemePalette.ParseHex(def.TextColorHex, Color.White);
-                _swatchMuted.BackColor = ThemePalette.ParseHex(def.MutedTextColorHex, Color.Gray);
-                _swatchBorder.BackColor = ThemePalette.ParseHex(def.BorderColorHex, Color.DarkSlateGray);
+                RefreshSwatch(_swatchBg, _hexBg, def.BackgroundColorHex);
+                RefreshSwatch(_swatchSurface, _hexSurface, def.SurfaceColorHex);
+                RefreshSwatch(_swatchAccent, _hexAccent, def.AccentColorHex);
+                RefreshSwatch(_swatchText, _hexText, def.TextColorHex);
+                RefreshSwatch(_swatchMuted, _hexMuted, def.MutedTextColorHex);
+                RefreshSwatch(_swatchBorder, _hexBorder, def.BorderColorHex);
             };
             Controls.Add(btnReset);
 
-            // Buttons
-            var btnCancel = new Button { Text = "Cancel", Location = new Point(340, 510), Size = new Size(90, 32) };
+            // Footer buttons
+            var btnCancel = MakeFlatButton("Cancel", 400, 570, 90, 34, primary: false);
             btnCancel.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
-            var btnOk = new Button { Text = "Save", Location = new Point(440, 510), Size = new Size(80, 32) };
+            var btnOk = MakeFlatButton("Save", 500, 570, 90, 34, primary: true);
             btnOk.Click += (_, _) =>
             {
                 ResultSettings.DefaultOutputFolder = _txtOutput.Text.Trim();
@@ -158,25 +177,50 @@ namespace God2Iso
             Controls.Add(btnOk);
         }
 
-        private static Label SectionHeader(string text, int x, int y) => new()
+        private Label SectionHeader(string text, int x, int y) => new()
         {
             Text = text,
-            Font = new Font("Segoe UI Semibold", 10f, FontStyle.Bold),
+            Font = new Font("Segoe UI Semibold", 11f, FontStyle.Bold),
             AutoSize = true,
             Location = new Point(x, y),
+            BackColor = Color.Transparent,
+            ForeColor = TextLight,
         };
 
-        private static Label FieldLabel(string text, int x, int y) => new()
+        private Label FieldLabel(string text, int x, int y) => new()
         {
             Text = text,
             AutoSize = true,
-            Tag = "muted",
+            BackColor = Color.Transparent,
+            ForeColor = MutedText,
             Location = new Point(x, y),
+            Font = new Font("Segoe UI", 9f),
         };
+
+        private void StyleInput(TextBox t, int x, int y, int width)
+        {
+            t.Location = new Point(x, y);
+            t.Size = new Size(width, 28);
+            t.BackColor = Surface;
+            t.ForeColor = TextLight;
+            t.BorderStyle = BorderStyle.FixedSingle;
+            t.Font = new Font("Segoe UI", 10f);
+        }
+
+        private void StyleCheck(CheckBox cb, string label, int x, int y)
+        {
+            cb.Text = label;
+            cb.AutoSize = true;
+            cb.Location = new Point(x, y);
+            cb.BackColor = Color.Transparent;
+            cb.ForeColor = TextLight;
+            cb.FlatStyle = FlatStyle.Flat;
+            cb.Cursor = Cursors.Hand;
+        }
 
         private Button BrowseButton(int x, int y, Action<string> onPicked)
         {
-            var b = new Button { Text = "Browse…", Location = new Point(x, y - 1), Size = new Size(90, 30) };
+            var b = MakeFlatButton("Browse…", x, y, 90, 30, primary: false);
             b.Click += (_, _) =>
             {
                 using var dlg = new FolderBrowserDialog { ShowNewFolderButton = true };
@@ -185,44 +229,97 @@ namespace God2Iso
             return b;
         }
 
-        private void AddSwatch(string label, Panel swatch, string hex, int x, int y, Action<string> onPicked)
+        private Button MakeFlatButton(string text, int x, int y, int w, int h, bool primary)
         {
-            var lbl = new Label { Text = label, Location = new Point(x, y), AutoSize = true, Tag = "muted" };
-            swatch.Size = new Size(28, 28);
-            swatch.Location = new Point(x, y + 20);
-            swatch.BorderStyle = BorderStyle.FixedSingle;
-            swatch.BackColor = ThemePalette.ParseHex(hex, Color.Black);
-            swatch.Cursor = Cursors.Hand;
-            var txt = new TextBox
+            var b = new Button
             {
-                Text = hex,
-                Location = new Point(x + 36, y + 22),
-                Size = new Size(100, 24),
-                Font = new Font("Consolas", 9f),
+                Text = text,
+                Location = new Point(x, y),
+                Size = new Size(w, h),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI", 9.5f, primary ? FontStyle.Bold : FontStyle.Regular),
             };
-            txt.TextChanged += (_, _) =>
+            if (primary)
+            {
+                b.BackColor = AccentFixed;
+                b.ForeColor = Color.White;
+                b.FlatAppearance.BorderColor = AccentFixed;
+                b.FlatAppearance.MouseOverBackColor = Color.FromArgb(
+                    255, Math.Min(255, AccentFixed.R + 20),
+                    Math.Min(255, AccentFixed.G + 20),
+                    Math.Min(255, AccentFixed.B + 20));
+            }
+            else
+            {
+                b.BackColor = SurfaceHi;
+                b.ForeColor = TextLight;
+                b.FlatAppearance.BorderColor = BorderDark;
+                b.FlatAppearance.MouseOverBackColor = Color.FromArgb(44, 50, 64);
+            }
+            b.FlatAppearance.BorderSize = 1;
+            return b;
+        }
+
+        private void AddSwatchRow(string label, Panel swatch, TextBox hexBox,
+            string initialHex, int x, int y, Action<string> onPicked)
+        {
+            Controls.Add(new Label
+            {
+                Text = label,
+                Location = new Point(x, y),
+                AutoSize = true,
+                BackColor = Color.Transparent,
+                ForeColor = MutedText,
+                Font = new Font("Segoe UI Semibold", 9f, FontStyle.Bold),
+            });
+
+            swatch.Size = new Size(44, 44);
+            swatch.Location = new Point(x, y + 22);
+            swatch.BackColor = SafeColor(initialHex);
+            swatch.Cursor = Cursors.Hand;
+            swatch.BorderStyle = BorderStyle.FixedSingle;
+            swatch.Click += (_, _) =>
+            {
+                using var dlg = new ColorPickerDialog(swatch.BackColor);
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    var hex = $"#{dlg.SelectedColor.R:X2}{dlg.SelectedColor.G:X2}{dlg.SelectedColor.B:X2}";
+                    swatch.BackColor = dlg.SelectedColor;
+                    hexBox.Text = hex;
+                    onPicked(hex);
+                }
+            };
+            Controls.Add(swatch);
+
+            hexBox.Location = new Point(x + 52, y + 32);
+            hexBox.Size = new Size(110, 24);
+            hexBox.BackColor = Surface;
+            hexBox.ForeColor = TextLight;
+            hexBox.BorderStyle = BorderStyle.FixedSingle;
+            hexBox.Font = new Font("Consolas", 10f);
+            hexBox.Text = initialHex;
+            hexBox.TextChanged += (_, _) =>
             {
                 try
                 {
-                    var c = ColorTranslator.FromHtml(txt.Text);
-                    swatch.BackColor = c;
-                    onPicked(txt.Text);
+                    swatch.BackColor = ColorTranslator.FromHtml(hexBox.Text);
+                    onPicked(hexBox.Text);
                 }
                 catch { }
             };
-            swatch.Click += (_, _) =>
-            {
-                using var cd = new ColorDialog { Color = swatch.BackColor, FullOpen = true };
-                if (cd.ShowDialog(this) == DialogResult.OK)
-                {
-                    swatch.BackColor = cd.Color;
-                    txt.Text = ThemePalette.ToHex(cd.Color);
-                    onPicked(txt.Text);
-                }
-            };
-            Controls.Add(lbl);
-            Controls.Add(swatch);
-            Controls.Add(txt);
+            Controls.Add(hexBox);
+        }
+
+        private void RefreshSwatch(Panel swatch, TextBox hexBox, string hex)
+        {
+            swatch.BackColor = SafeColor(hex);
+            hexBox.Text = hex;
+        }
+
+        private static Color SafeColor(string hex)
+        {
+            try { return ColorTranslator.FromHtml(hex); } catch { return Color.Black; }
         }
     }
 }
