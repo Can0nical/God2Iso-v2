@@ -1,239 +1,348 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Data;
+using System.Diagnostics;
 using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Windows.Forms;
-using System.IO;
-using Microsoft.WindowsAPICodePack.Taskbar;
-using System.Management;
-using System.Reflection;
 
 namespace God2Iso
 {
-    public partial class Form1 : Form
+    public partial class MainForm : Form
     {
-        public Form1()
+        private AppSettings _settings = new();
+        private byte[]? _xsfHeader;
+        private readonly BackgroundWorker _worker = new();
+        private string? _lastBrowsePath;
+        private int _currentPackageIndex;
+        private int _completedPackages;
+
+        public MainForm()
         {
+            _settings = AppSettings.Load();
+            ThemePalette.Load(_settings);
+            _xsfHeader = LoadEmbeddedXsfHeader();
             InitializeComponent();
-            try
-            {
-                windowsTaskbar = TaskbarManager.Instance;
-            }
-            catch (Exception) { }
             Text = GetAppName();
-        }
+            Icon = TryLoadIcon();
+            AllowDrop = true;
+            DragEnter += OnDragEnter;
+            DragDrop += OnDragDrop;
 
-        private string lastPath = null;
-        private TaskbarManager windowsTaskbar = null;
-        private System.Windows.Forms.Button buttonScanFolder;
+            _worker.WorkerReportsProgress = true;
+            _worker.DoWork += BackgroundWorker_DoWork;
+            _worker.ProgressChanged += BackgroundWorker_ProgressChanged;
+            _worker.RunWorkerCompleted += BackgroundWorker_RunWorkerCompleted;
 
-        private void buttonAdd_Click(object sender, EventArgs e)
-        {
-            OpenFileDialog browser = new OpenFileDialog();
-            browser.CheckFileExists = true;
-            if (lastPath != null && Directory.Exists(lastPath)) browser.InitialDirectory = lastPath;
-            if (browser.ShowDialog() == DialogResult.OK)
+            ApplySettingsToUi();
+            ThemePalette.Apply(this);
+
+            if (_settings.AutoPopulateOnStart &&
+                !string.IsNullOrEmpty(_settings.DefaultSourceFolder) &&
+                Directory.Exists(_settings.DefaultSourceFolder))
             {
-                string path = Path.Combine(browser.FileName + ".data", "Data0000");
-                if (listPackages.Items.Contains(browser.FileName))
-                {
-                    MessageBox.Show("God package already already in the list.", "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-                else if (File.Exists(path))
-                {
-                    listPackages.Items.Add(browser.FileName);
-                    lastPath = Path.GetDirectoryName(browser.FileName);
-                }
-                else
-                {
-                    MessageBox.Show("Could not find associated data file: " + path, "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
+                ScanFolderRecursively(_settings.DefaultSourceFolder);
             }
         }
 
-        private void buttonBrowse_Click(object sender, EventArgs e)
+        private void ApplySettingsToUi()
         {
-            FolderBrowserDialog browser = new FolderBrowserDialog();
-            browser.ShowNewFolderButton = true;
-            browser.Description = "Select an output folder for the iso...";
-            if (Directory.Exists(textOutput.Text)) browser.SelectedPath = textOutput.Text;
-            if (browser.ShowDialog() == DialogResult.OK)
+            if (!string.IsNullOrEmpty(_settings.DefaultOutputFolder) &&
+                Directory.Exists(_settings.DefaultOutputFolder))
             {
-                textOutput.Text = browser.SelectedPath;
+                _textOutput.Text = _settings.DefaultOutputFolder;
             }
+            _cbFix.Checked = _settings.FixCreateIsoHeader;
         }
 
-        private void buttonGo_Click(object sender, EventArgs e)
+        private static Icon? TryLoadIcon()
         {
             try
             {
-                if (listPackages.Items.Count < 1)
-                {
-                    MessageBox.Show("No God packages specified.", "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-                if (textOutput.Text.Length < 1)
-                {
-                    MessageBox.Show("You must specify an output directory.", "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-                if (!Directory.Exists(textOutput.Text))
-                {
-                    MessageBox.Show("Output directory does not exist.", "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-
-                progressIso.Value = 0;
-                progressTotal.Value = 0;
-                listPackages.SelectedIndex = -1;
-                buttonAdd.Enabled = false;
-                buttonGo.Enabled = false;
-                buttonBrowse.Enabled = false;
-                buttonClear.Enabled = false;
-                listPackages.Enabled = false;
-                textOutput.Enabled = false;
-                cbFix.Enabled = false;
-
-                // calculate total number & size of files
-                int totalFiles = 0;
-                ulong totalSize = 0;
-                for (int i = 0; i < listPackages.Items.Count; i++)
-                {
-                    int count = 0;
-                    while (true)
-                    {
-                        string path = Path.Combine(((string)listPackages.Items[i]) + ".data", "Data" + count.ToString("D4"));
-                        if (!File.Exists(path)) break;
-                        count++;
-                        FileInfo info = new FileInfo(path);
-                        totalSize += (ulong)info.Length;
-                    }
-                    totalFiles += count;
-                }
-
-                try
-                {
-                    ManagementObject disk = new ManagementObject("win32_logicaldisk.deviceid=\"" + textOutput.Text.Substring(0, 1) + ":\"");
-                    disk.Get();
-                    ulong freeSpace = (ulong)disk["FreeSpace"];
-                    if (totalSize > freeSpace)
-                    {
-                        MessageBox.Show("Not enough free space in output directory - need approximately " + FormatSize(totalSize) + '.', "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        // reset buttons
-                        backgroundWorker_RunWorkerCompleted(null, null);
-                        return;
-                    }
-                }
-                catch (Exception) { }
-
-                progressTotal.Maximum = totalFiles;
-                if (windowsTaskbar != null) windowsTaskbar.SetProgressState(TaskbarProgressBarState.Normal);
-                backgroundWorker.RunWorkerAsync();
+                var path = Path.Combine(AppContext.BaseDirectory, "Tribalmarkings-Colorflow-Xbox-360.ico");
+                if (File.Exists(path)) return new Icon(path);
             }
-            catch (Exception ex)
-            {
-                textBox1.Text = ex.Message + Environment.NewLine + ex.StackTrace;
-            }
+            catch { }
+            return null;
         }
 
-        private string FormatSize(ulong byteCount)
+        private static byte[]? LoadEmbeddedXsfHeader()
         {
-            string size;
-            if (byteCount >= 1073741824)
+            try
             {
-                size = String.Format("{0:##.##}", byteCount / 1073741824.0) + " gb";
+                var asm = Assembly.GetExecutingAssembly();
+                var name = asm.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith("XSFHeader.bin", StringComparison.OrdinalIgnoreCase));
+                if (name is null) return null;
+                using var s = asm.GetManifestResourceStream(name);
+                if (s is null) return null;
+                using var ms = new MemoryStream();
+                s.CopyTo(ms);
+                return ms.ToArray();
             }
-            else if (byteCount >= 1048576)
+            catch { return null; }
+        }
+
+        private static string GetAppName()
+        {
+            var v = Assembly.GetExecutingAssembly().GetName().Version;
+            if (v is null) return "God2Iso v3";
+            return $"God2Iso v{v.Major}.{v.Minor}.{v.Build}";
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // UI event handlers
+        // ─────────────────────────────────────────────────────────────
+
+        private void OnAddClick(object? sender, EventArgs e)
+        {
+            using var browser = new OpenFileDialog
             {
-                size = String.Format("{0:##.##}", byteCount / 1048576.0) + " mb";
+                CheckFileExists = true,
+                Title = "Select a GoD package header",
+                InitialDirectory = _lastBrowsePath ?? _settings.DefaultSourceFolder ?? "",
+            };
+            if (browser.ShowDialog(this) != DialogResult.OK) return;
+
+            var dataPath = Path.Combine(browser.FileName + ".data", "Data0000");
+            if (_listPackages.Items.Contains(browser.FileName))
+            {
+                Toast("Already in the list.");
+                return;
             }
-            else if (byteCount >= 1024)
+            if (File.Exists(dataPath))
             {
-                size = String.Format("{0:##.##}", byteCount / 1024.0) + " kb";
+                _listPackages.Items.Add(browser.FileName);
+                _lastBrowsePath = Path.GetDirectoryName(browser.FileName);
             }
             else
             {
-                size = byteCount + " b";
+                MessageBox.Show(this, "Could not find associated data file:\n" + dataPath,
+                    "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            return size;
         }
 
-        private void listPackages_SelectedIndexChanged(object sender, EventArgs e)
+        private void OnBrowseOutputClick(object? sender, EventArgs e)
         {
-            buttonRemove.Enabled = listPackages.SelectedIndex >= 0;
-        }
-
-        private void buttonRemove_Click(object sender, EventArgs e)
-        {
-            int selected = listPackages.SelectedIndex;
-            if (selected < listPackages.Items.Count - 1)
+            using var dlg = new FolderBrowserDialog
             {
-                listPackages.SelectedIndex = selected + 1;
+                ShowNewFolderButton = true,
+                Description = "Pick an output folder for the ISO",
+                SelectedPath = Directory.Exists(_textOutput.Text) ? _textOutput.Text : "",
+            };
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                _textOutput.Text = dlg.SelectedPath;
             }
-            else if (listPackages.Items.Count > 1)
+        }
+
+        private void OnScanFolderClick(object? sender, EventArgs e)
+        {
+            using var dlg = new FolderBrowserDialog
             {
-                listPackages.SelectedIndex = selected - 1;
+                ShowNewFolderButton = false,
+                Description = "Pick a folder to scan recursively for GoD packages",
+                SelectedPath = _settings.DefaultSourceFolder,
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            int before = _listPackages.Items.Count;
+            ScanFolderRecursively(dlg.SelectedPath);
+            int added = _listPackages.Items.Count - before;
+
+            if (!_settings.SkipBatchConfirmPrompt)
+            {
+                MessageBox.Show(this,
+                    $"Scan complete. {added} package(s) added to the list.",
+                    "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
-            listPackages.Items.RemoveAt(selected);
-        }
-
-        private bool HasXSFHeader(string file)
-        {
-            byte[] buff = new byte[3];
-
-            FileStream data = new FileStream(file, FileMode.Open, FileAccess.Read);
-            data.Position = 0x2000;
-            data.Read(buff, 0, buff.Length);
-            data.Close();
-
-            if (buff[0] != 0x58) return false;
-            if (buff[1] != 0x53) return false;
-            if (buff[2] != 0x46) return false;
-
-            return true;
-        }
-
-        private void backgroundWorker_DoWork(object sender, DoWorkEventArgs e)
-        {
-            BackgroundWorker worker = sender as BackgroundWorker;
-
-            for (int i = 0; i < listPackages.Items.Count; i++)
+            else
             {
-                FileStream iso = null;
-                FileStream data = null;
+                Toast($"Scan complete — {added} package(s) added.");
+            }
+        }
 
+        private void OnRemoveClick(object? sender, EventArgs e)
+        {
+            int selected = _listPackages.SelectedIndex;
+            if (selected < 0) return;
+            if (selected < _listPackages.Items.Count - 1) _listPackages.SelectedIndex = selected + 1;
+            else if (_listPackages.Items.Count > 1) _listPackages.SelectedIndex = selected - 1;
+            _listPackages.Items.RemoveAt(selected);
+        }
+
+        private void OnClearClick(object? sender, EventArgs e)
+        {
+            _listPackages.SelectedIndex = -1;
+            _listPackages.Items.Clear();
+        }
+
+        private void OnListSelectionChanged(object? sender, EventArgs e)
+        {
+            _btnRemove.Enabled = _listPackages.SelectedIndex >= 0;
+        }
+
+        private void OnGoClick(object? sender, EventArgs e)
+        {
+            if (_listPackages.Items.Count < 1)
+            {
+                MessageBox.Show(this, "No GoD packages specified.", "God2Iso",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_textOutput.Text))
+            {
+                MessageBox.Show(this, "Pick an output folder first.", "God2Iso",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            if (!Directory.Exists(_textOutput.Text))
+            {
+                MessageBox.Show(this, "Output folder does not exist.", "God2Iso",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            if (_xsfHeader is null)
+            {
+                MessageBox.Show(this, "Embedded XSF header missing — build issue.",
+                    "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // ── Pre-flight disk space check ──
+            long totalSize = 0;
+            int totalFiles = 0;
+            for (int i = 0; i < _listPackages.Items.Count; i++)
+            {
+                var path = (string)_listPackages.Items[i]!;
+                int count = 0;
+                while (true)
+                {
+                    var part = Path.Combine(path + ".data", "Data" + count.ToString("D4"));
+                    if (!File.Exists(part)) break;
+                    totalSize += new FileInfo(part).Length;
+                    count++;
+                }
+                totalFiles += count;
+            }
+            try
+            {
+                var driveRoot = Path.GetPathRoot(_textOutput.Text);
+                if (!string.IsNullOrEmpty(driveRoot))
+                {
+                    var drive = new DriveInfo(driveRoot);
+                    if (drive.IsReady && drive.AvailableFreeSpace < totalSize)
+                    {
+                        MessageBox.Show(this,
+                            $"Not enough free space in the output folder.\nNeed approximately {FormatSize((ulong)totalSize)}.",
+                            "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                }
+            }
+            catch { /* skip disk-space check on failure */ }
+
+            _progressIso.Value = 0;
+            _progressTotal.Value = 0;
+            _progressTotal.Maximum = Math.Max(1, totalFiles);
+            SetBusy(true);
+            _currentPackageIndex = 0;
+            _completedPackages = 0;
+            _worker.RunWorkerAsync();
+        }
+
+        private void OnSettingsClick(object? sender, EventArgs e)
+        {
+            using var dlg = new SettingsDialog(_settings);
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                _settings = dlg.ResultSettings;
+                _settings.Save();
+                ThemePalette.Load(_settings);
+                ThemePalette.Apply(this);
+                ApplySettingsToUi();
+            }
+        }
+
+        private void OnFixCheckedChanged(object? sender, EventArgs e)
+        {
+            _settings.FixCreateIsoHeader = _cbFix.Checked;
+            _settings.Save();
+        }
+
+        private void OnDragEnter(object? sender, DragEventArgs e)
+        {
+            if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
+                e.Effect = DragDropEffects.Copy;
+        }
+
+        private void OnDragDrop(object? sender, DragEventArgs e)
+        {
+            if (e.Data?.GetData(DataFormats.FileDrop) is not string[] paths) return;
+            foreach (var path in paths)
+            {
+                if (Directory.Exists(path))
+                {
+                    ScanFolderRecursively(path);
+                }
+                else if (File.Exists(path))
+                {
+                    var dataPath = Path.Combine(path + ".data", "Data0000");
+                    if (File.Exists(dataPath) && !_listPackages.Items.Contains(path))
+                    {
+                        _listPackages.Items.Add(path);
+                    }
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Background conversion — algorithm from God2Iso v2, preserved verbatim
+        // ─────────────────────────────────────────────────────────────
+
+        private void BackgroundWorker_DoWork(object? sender, DoWorkEventArgs e)
+        {
+            var worker = (BackgroundWorker)sender!;
+            var packages = new List<string>();
+            Invoke(() =>
+            {
+                foreach (var o in _listPackages.Items) packages.Add((string)o!);
+            });
+
+            for (int i = 0; i < packages.Count; i++)
+            {
+                _currentPackageIndex = i;
+                FileStream? iso = null;
+                FileStream? data = null;
                 try
                 {
-                    string baseName = Path.GetFileName((string)listPackages.Items[i]);
-                    string dataPath = (string)listPackages.Items[i] + ".data";
+                    string baseName = Path.GetFileName(packages[i]);
+                    string dataDir = packages[i] + ".data";
 
-                    // count files
                     int totalFiles;
-                    for (totalFiles = 0; true; totalFiles++)
+                    for (totalFiles = 0; ; totalFiles++)
                     {
-                        string path = Path.Combine(dataPath, "Data" + totalFiles.ToString("D4"));
-                        if (!File.Exists(path)) break;
+                        var p = Path.Combine(dataDir, "Data" + totalFiles.ToString("D4"));
+                        if (!File.Exists(p)) break;
                     }
-                    if (totalFiles < 1) return;
+                    if (totalFiles < 1) continue;
 
-                    // check for xsf header
-                    bool hasXSF = HasXSFHeader(Path.Combine(dataPath, "Data0000"));
+                    bool hasXsf = HasXsfHeader(Path.Combine(dataDir, "Data0000"));
+                    string outputFolder = "";
+                    Invoke(() => outputFolder = _textOutput.Text);
+                    iso = new FileStream(Path.Combine(outputFolder, baseName + ".iso"),
+                        FileMode.Create, FileAccess.ReadWrite);
 
-                    // open new iso file
-                    iso = new FileStream(Path.Combine(textOutput.Text, baseName + ".iso"), FileMode.Create, FileAccess.ReadWrite);
+                    if (!hasXsf) iso.Write(_xsfHeader!, 0, _xsfHeader!.Length);
 
-                    // add header, if needed
-                    if (!hasXSF) iso.Write(Properties.Resources.XSFHeader, 0, Properties.Resources.XSFHeader.Length);
-
-                    // loop through data parts
                     for (int fileNum = 0; fileNum < totalFiles; fileNum++)
                     {
-                        string path = Path.Combine(dataPath, "Data" + fileNum.ToString("D4"));
+                        var path = Path.Combine(dataDir, "Data" + fileNum.ToString("D4"));
                         data = new FileStream(path, FileMode.Open, FileAccess.Read);
                         data.Position = 0x2000;
-                        int len = 0;
+                        int len;
                         while (true)
                         {
                             byte[] buff = new byte[0xcc000];
@@ -245,34 +354,131 @@ namespace God2Iso
                         }
                         data.Close();
                         data = null;
-                        worker.ReportProgress(0, new MyState(fileNum + 1, totalFiles));
+                        worker.ReportProgress(0, new ProgressState(fileNum + 1, totalFiles));
                     }
 
-                    if (!hasXSF)
+                    if (!hasXsf)
                     {
-                        FixXFSHeader(iso);
-                        FixSectorOffsets(iso, (string)listPackages.Items[i]);
+                        FixXfsHeader(iso);
+                        FixSectorOffsets(iso, packages[i]);
                     }
-                    if (cbFix.Checked) FixCreateIsoGoodHeader(iso);
+                    bool fixHdr = false;
+                    Invoke(() => fixHdr = _cbFix.Checked);
+                    if (fixHdr) FixCreateIsoGoodHeader(iso);
 
+                    _completedPackages++;
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(ex.Message, "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Invoke(() => MessageBox.Show(this, ex.Message, "God2Iso",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error));
                 }
                 finally
                 {
-                    if (iso != null) try { iso.Close(); } catch (Exception) { }
-                    if (data != null) try { data.Close(); } catch (Exception) { }
+                    try { iso?.Close(); } catch { }
+                    try { data?.Close(); } catch { }
                 }
             }
+        }
+
+        private void BackgroundWorker_ProgressChanged(object? sender, ProgressChangedEventArgs e)
+        {
+            if (e.UserState is not ProgressState st) return;
+            _progressIso.Maximum = st.Files;
+            _progressIso.Value = st.File;
+            if (_progressTotal.Value < _progressTotal.Maximum) _progressTotal.PerformStep();
+            TaskbarProgress.SetProgress(Handle, _progressTotal.Value, _progressTotal.Maximum);
+        }
+
+        private void BackgroundWorker_RunWorkerCompleted(object? sender, RunWorkerCompletedEventArgs e)
+        {
+            SetBusy(false);
+            TaskbarProgress.ClearProgress(Handle);
+            _progressIso.Value = _progressIso.Maximum;
+            _progressTotal.Value = _progressTotal.Maximum;
+
+            int done = _completedPackages;
+            int total = _listPackages.Items.Count;
+
+            if (_settings.ShowCompletionDialog)
+            {
+                MessageBox.Show(this,
+                    done == total
+                        ? $"All done — {done} ISO{(done == 1 ? "" : "s")} written to:\n{_textOutput.Text}"
+                        : $"Finished with {done}/{total} ISO(s) written. Check the error popups for details.",
+                    "God2Iso — Conversion Complete",
+                    MessageBoxButtons.OK,
+                    done == total ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            }
+            else
+            {
+                Toast(done == total
+                    ? $"All done — {done} ISO(s) written."
+                    : $"Finished with {done}/{total} ISO(s). Some failed.");
+            }
+        }
+
+        private void SetBusy(bool busy)
+        {
+            _btnAdd.Enabled = !busy;
+            _btnGo.Enabled = !busy;
+            _btnBrowseOutput.Enabled = !busy;
+            _btnClear.Enabled = !busy;
+            _btnScanFolder.Enabled = !busy;
+            _btnSettings.Enabled = !busy;
+            _listPackages.Enabled = !busy;
+            _textOutput.Enabled = !busy;
+            _cbFix.Enabled = !busy;
+            _statusLabel.Text = busy ? "Converting…" : "Idle";
+            _statusLabel.ForeColor = busy ? ThemePalette.Accent : ThemePalette.MutedText;
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Scan folder recursively (fixed: no longer renames the user's files!
+        // The original code auto-renamed detected GoD files, which was
+        // destructive. We now just list what we find.)
+        // ─────────────────────────────────────────────────────────────
+
+        private void ScanFolderRecursively(string folderPath)
+        {
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(folderPath))
+                {
+                    if (_listPackages.Items.Contains(file)) continue;
+                    var dataPath = Path.Combine(file + ".data", "Data0000");
+                    if (File.Exists(dataPath))
+                    {
+                        _listPackages.Items.Add(file);
+                    }
+                }
+                foreach (var sub in Directory.EnumerateDirectories(folderPath))
+                {
+                    ScanFolderRecursively(sub);
+                }
+            }
+            catch (UnauthorizedAccessException) { /* ignore locked folders */ }
+            catch (DirectoryNotFoundException) { }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Original algorithm bits — unchanged
+        // ─────────────────────────────────────────────────────────────
+
+        private static bool HasXsfHeader(string file)
+        {
+            byte[] buff = new byte[3];
+            using var data = new FileStream(file, FileMode.Open, FileAccess.Read);
+            data.Position = 0x2000;
+            data.Read(buff, 0, buff.Length);
+            return buff[0] == 0x58 && buff[1] == 0x53 && buff[2] == 0x46;
         }
 
         private void FixSectorOffsets(FileStream iso, string godPath)
         {
             int sector, size, offset;
             byte[] buffer;
-            Queue<DirEntry> directories = new Queue<DirEntry>();
+            Queue<DirEntry> directories = new();
 
             buffer = File.ReadAllBytes(godPath);
             if ((buffer[0x391] & 0x40) != 0x40) return;
@@ -298,14 +504,13 @@ namespace God2Iso
 
             while (directories.Count > 0)
             {
-                DirEntry dirEntry = directories.Dequeue();
+                var dirEntry = directories.Dequeue();
                 iso.Position = dirEntry.StartPos();
                 while ((iso.Position + 4) < dirEntry.EndPos())
                 {
                     if ((iso.Position + 4) / 2048L > iso.Position / 2048L)
-                    {
                         iso.Position += 2048L - (iso.Position % 2048L);
-                    }
+
                     iso.Read(buffer, 0, 4);
                     if (buffer[0] == 0xff && buffer[1] == 0xff && buffer[2] == 0xff && buffer[3] == 0xff)
                     {
@@ -334,7 +539,6 @@ namespace God2Iso
                     if ((buffer[0] & 0x10) == 0x10) directories.Enqueue(new DirEntry(sector, size));
                     iso.Read(buffer, 0, 1);
                     iso.Position += buffer[0];
-
                     if ((14 + buffer[0]) % 4 > 0) iso.Position += 4 - ((14 + buffer[0]) % 4);
                 }
             }
@@ -348,15 +552,14 @@ namespace God2Iso
             if (BitConverter.ToInt64(bytes, 0) == 2587648L)
             {
                 iso.Position = 0;
-                iso.Write(Properties.Resources.XSFHeader, 0, Properties.Resources.XSFHeader.Length);
-                FixXFSHeader(iso);
+                iso.Write(_xsfHeader!, 0, _xsfHeader!.Length);
+                FixXfsHeader(iso);
             }
         }
 
-        private void FixXFSHeader(FileStream iso)
+        private void FixXfsHeader(FileStream iso)
         {
             byte[] bytes;
-
             iso.Position = 8;
             bytes = BitConverter.GetBytes(iso.Length - 0x400);
             iso.Write(bytes, 0, bytes.Length);
@@ -364,179 +567,48 @@ namespace God2Iso
             iso.Position = 0x8050;
             bytes = BitConverter.GetBytes((uint)(iso.Length / 2048));
             iso.Write(bytes, 0, bytes.Length);
-            for (int i = bytes.Length - 1; i >= 0; i--)
-            {
-                iso.WriteByte(bytes[i]);
-            }
+            for (int i = bytes.Length - 1; i >= 0; i--) iso.WriteByte(bytes[i]);
 
             iso.Position = 0x7a69;
             bytes = Encoding.ASCII.GetBytes(GetAppName());
             iso.Write(bytes, 0, bytes.Length);
         }
 
-        private string GetAppName()
+        // ─────────────────────────────────────────────────────────────
+        // Toast — tiny bottom-right popup, no interrupt
+        // ─────────────────────────────────────────────────────────────
+        private void Toast(string message)
         {
-            string s = "God2Iso v" + Assembly.GetExecutingAssembly().GetName().Version.ToString();
-            return s.Substring(0, s.Length - 2);
-        }
-
-        private void backgroundWorker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
-        {
-            if (windowsTaskbar != null) windowsTaskbar.SetProgressState(TaskbarProgressBarState.NoProgress);
-            buttonAdd.Enabled = true;
-            buttonGo.Enabled = true;
-            buttonBrowse.Enabled = true;
-            buttonClear.Enabled = true;
-            listPackages.Enabled = true;
-            textOutput.Enabled = true;
-            cbFix.Enabled = true;
-        }
-
-        private void buttonClear_Click(object sender, EventArgs e)
-        {
-            listPackages.SelectedIndex = -1;
-            listPackages.Items.Clear();
-        }
-
-        private void backgroundWorker_ProgressChanged(object sender, ProgressChangedEventArgs e)
-        {
-            MyState state = (MyState)e.UserState;
-            progressIso.Value = state.file;
-            progressIso.Maximum = state.files;
-            progressTotal.PerformStep();
-            if (windowsTaskbar != null) windowsTaskbar.SetProgressValue(progressTotal.Value, progressTotal.Maximum);
-        }
-
-        private class MyState
-        {
-            public int file;
-            public int files;
-            public MyState(int file, int files)
+            _statusLabel.Text = message;
+            _statusLabel.ForeColor = ThemePalette.Accent;
+            var t = new System.Windows.Forms.Timer { Interval = 3500 };
+            t.Tick += (_, _) =>
             {
-                this.file = file;
-                this.files = files;
-            }
+                _statusLabel.Text = "Idle";
+                _statusLabel.ForeColor = ThemePalette.MutedText;
+                t.Stop();
+                t.Dispose();
+            };
+            t.Start();
         }
 
-        private class DirEntry
+        private static string FormatSize(ulong byteCount)
         {
-            public int sector;
-            public int length;
-            public DirEntry(int sector, int length)
-            {
-                this.sector = sector;
-                this.length = length;
-            }
-            public long StartPos()
-            {
-                return sector * 2048L;
-            }
-            public long EndPos()
-            {
-                return (sector * 2048L) + length;
-            }
+            if (byteCount >= 1073741824) return $"{byteCount / 1073741824.0:0.##} GB";
+            if (byteCount >= 1048576) return $"{byteCount / 1048576.0:0.##} MB";
+            if (byteCount >= 1024) return $"{byteCount / 1024.0:0.##} KB";
+            return $"{byteCount} B";
         }
 
-        private void buttonScanFolder_Click(object sender, EventArgs e)
+        private sealed record ProgressState(int File, int Files);
+
+        private sealed class DirEntry
         {
-            // Open FolderBrowserDialog to allow the user to select a folder
-            FolderBrowserDialog browser = new FolderBrowserDialog();
-            browser.ShowNewFolderButton = false; // Prevent creating new folders
-            browser.Description = "Select a folder to scan for files...";
-
-            if (browser.ShowDialog() == DialogResult.OK)
-            {
-                string folderPath = browser.SelectedPath;
-
-                // Call the method to scan the folder and its subfolders
-                ScanFolderRecursively(folderPath);
-
-                // Optionally, show a message once scanning is complete
-                MessageBox.Show("Folder scan complete.", "God2Iso", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
+            public int Sector;
+            public int Length;
+            public DirEntry(int sector, int length) { Sector = sector; Length = length; }
+            public long StartPos() => Sector * 2048L;
+            public long EndPos() => (Sector * 2048L) + Length;
         }
-
-        private void ScanFolderRecursively(string folderPath)
-        {
-            // Get all files in the current folder
-            string[] files = Directory.GetFiles(folderPath);
-
-            // Iterate through each file and add it to the listPackages
-            foreach (var file in files)
-            {
-                // Check if the file is already in the list
-                if (!listPackages.Items.Contains(file))
-                {
-                    // Check for the associated .data file (just like in the buttonAdd logic)
-                    string dataPath = Path.Combine(file + ".data", "Data0000");
-
-                    // Only add the file if it exists and is valid
-                    if (File.Exists(dataPath))
-                    {
-                        // Get the file extension to preserve it
-                        string fileExtension = Path.GetExtension(file);
-
-                        // Get the full path to the folder where the file is located
-                        string fullFolderPath = Path.GetDirectoryName(file);
-
-                        // Split the full path into folder components
-                        string[] folderParts = fullFolderPath.Split(Path.DirectorySeparatorChar);
-
-                        // Check if we have at least 3 levels (root folder, subfolder, and the target file folder)
-                        if (folderParts.Length < 3) // Ensure the folder has enough structure
-                        {
-                            MessageBox.Show("The folder structure is not as expected.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            return;
-                        }
-
-                        // The root folder (third-to-last folder in the path structure)
-                        string rootFolderName = folderParts[folderParts.Length - 3];
-
-                        // Create the new file name based on the root folder name
-                        string newFileName = Path.Combine(Path.GetDirectoryName(file), rootFolderName + fileExtension);
-
-                        // Rename the file
-                        File.Move(file, newFileName);
-
-                        // Now rename the **last folder** inside the directory to match the root folder name and add `.data` suffix
-                        string lastFolderPath = Path.Combine(fullFolderPath, Path.GetFileName(file) + ".data"); // This should point to the last folder (e.g., "05E15F869CA8572DE8C6.data")
-                        string newLastFolderName = Path.Combine(Path.GetDirectoryName(lastFolderPath), rootFolderName + ".data"); // Append .data to the new folder name
-
-                        // Check if the folder with the new name already exists
-                        if (Directory.Exists(newLastFolderName))
-                        {
-                            MessageBox.Show("The folder already exists: " + newLastFolderName, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            return;
-                        }
-
-                        // Rename the folder (only if it's not already named the same)
-                        if (lastFolderPath != newLastFolderName && Directory.Exists(lastFolderPath))
-                        {
-                            try
-                            {
-                                Directory.Move(lastFolderPath, newLastFolderName);
-                            }
-                            catch (IOException ex)
-                            {
-                                MessageBox.Show("An error occurred while renaming the folder: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            }
-                        }
-
-                        // Remove the old file path and add the renamed path
-                        listPackages.Items.Remove(file);  // Remove old path
-                        listPackages.Items.Add(newFileName);  // Add the renamed path
-                    }
-                }
-            }
-
-            // Recursively scan all subfolders
-            string[] subfolders = Directory.GetDirectories(folderPath);
-            foreach (var subfolder in subfolders)
-            {
-                // Call the method recursively for each subfolder
-                ScanFolderRecursively(subfolder);
-            }
-        }
-
     }
 }
